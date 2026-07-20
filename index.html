@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="CutCam">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<title>CutCam</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; background: #000; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    overscroll-behavior: none; user-select: none; }
+  #app { position: fixed; inset: 0; padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom); display: flex; flex-direction: column; }
+  .screen { flex: 1; display: none; flex-direction: column; height: 100%; }
+  .screen.active { display: flex; }
+
+  /* ---- Setup screen ---- */
+  #setup { padding: 24px; justify-content: center; gap: 24px; }
+  #setup h1 { font-size: 28px; margin: 0 0 8px; text-align: center; }
+  #setup .sub { text-align: center; color: #999; margin: 0 0 16px; font-size: 14px; }
+  .field { display: flex; flex-direction: column; gap: 10px; }
+  .field label { font-size: 14px; color: #ccc; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  input[type=range] { flex: 1; }
+  .val { width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+  .filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .filters button { padding: 10px 4px; border-radius: 10px; border: 1px solid #333;
+    background: #111; color: #fff; font-size: 12px; }
+  .filters button.active { border-color: #fff; background: #fff; color: #000; font-weight: 600; }
+  .bigbtn { padding: 16px; border-radius: 14px; border: none; font-size: 17px; font-weight: 600;
+    background: #fff; color: #000; }
+  .ghostbtn { padding: 14px; border-radius: 14px; border: 1px solid #444; background: transparent;
+    color: #fff; font-size: 15px; }
+  #resumeBox { background: #151515; border-radius: 14px; padding: 16px; display: none; gap: 10px; flex-direction: column; }
+  #resumeBox.show { display: flex; }
+
+  /* ---- Camera screen ---- */
+  #camera { position: relative; background: #000; }
+  #camera video, #camera canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #camera video { visibility: hidden; }
+  .topbar { position: relative; z-index: 2; display: flex; justify-content: space-between;
+    align-items: center; padding: 14px 16px; }
+  .pill { background: rgba(0,0,0,0.5); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
+  .cutdots { position: relative; z-index: 2; display: flex; gap: 4px; padding: 0 16px; flex-wrap: wrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.25); }
+  .dot.filled { background: #fff; }
+  .bottombar { position: relative; z-index: 2; margin-top: auto; padding: 24px; display: flex;
+    align-items: center; justify-content: center; gap: 40px; }
+  #recordBtn { width: 76px; height: 76px; border-radius: 50%; border: 4px solid #fff; background: transparent;
+    position: relative; }
+  #recordBtn::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: #ff3b30;
+    transition: border-radius 0.2s, inset 0.2s; }
+  #recordBtn.recording::after { border-radius: 6px; inset: 20px; }
+  #finishBtn { padding: 12px 18px; border-radius: 12px; border: none; background: rgba(255,255,255,0.15);
+    color: #fff; font-size: 14px; }
+
+  /* ---- Finish screen ---- */
+  #finish { padding: 24px; gap: 18px; justify-content: flex-start; overflow-y: auto; }
+  #finish h2 { margin: 0 0 4px; font-size: 22px; text-align: center; }
+  .section-label { font-size: 14px; color: #ccc; display: flex; align-items: center; gap: 8px; }
+  .textinput { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #333;
+    background: #111; color: #fff; font-size: 15px; }
+  #endframeFields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  #endframeFields.hide { display: none; }
+  .choice { display: flex; gap: 10px; }
+  .choice button { flex: 1; padding: 16px; border-radius: 14px; border: 1px solid #333; background: #111;
+    color: #fff; font-size: 15px; }
+  .choice button.active { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
+  #bgmPicker { display: none; }
+  #bgmPicker.show { display: flex; flex-direction: column; gap: 10px; }
+  #progressWrap { display: none; flex-direction: column; gap: 8px; align-items: center; }
+  #progressWrap.show { display: flex; }
+  #progressBar { width: 100%; height: 8px; background: #222; border-radius: 4px; overflow: hidden; }
+  #progressFill { height: 100%; width: 0%; background: #fff; }
+  #resultWrap { display: none; flex-direction: column; gap: 12px; }
+  #resultWrap.show { display: flex; }
+  #resultVideo { width: 100%; border-radius: 14px; background: #000; }
+  #status { font-size: 13px; color: #999; text-align: center; min-height: 16px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- SETUP -->
+  <div class="screen active" id="setup">
+    <div>
+      <h1>CutCam</h1>
+      <p class="sub">한 번 촬영으로 자동 컷 편집</p>
+    </div>
+
+    <div id="resumeBox">
+      <div style="font-size:14px;color:#ccc;">진행 중인 촬영이 있어요 (<span id="resumeCount">0</span>컷)</div>
+      <div class="row">
+        <button class="bigbtn" style="flex:1" id="resumeBtn">이어 찍기</button>
+        <button class="ghostbtn" style="flex:1" id="discardBtn">새로 시작</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>컷 길이: <b id="cutLenVal">2.0</b>초</label>
+      <input type="range" id="cutLen" min="0.5" max="6" step="0.5" value="2">
+    </div>
+
+    <div class="field">
+      <label>필터</label>
+      <div class="filters" id="filterGrid"></div>
+    </div>
+
+    <button class="bigbtn" id="startBtn">촬영 시작</button>
+  </div>
+
+  <!-- CAMERA -->
+  <div class="screen" id="camera">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="canvas"></canvas>
+    <div class="topbar">
+      <div class="pill" id="cutCountPill">0컷</div>
+      <div class="pill" id="timerPill">0.0s</div>
+    </div>
+    <div class="cutdots" id="cutDots"></div>
+    <div class="bottombar">
+      <button class="finish-only" id="finishBtn2" style="display:none">종료</button>
+      <button id="recordBtn"></button>
+      <div style="width:60px"></div>
+    </div>
+  </div>
+
+  <!-- FINISH -->
+  <div class="screen" id="finish">
+    <h2>촬영 완료 🎬</h2>
+    <p class="sub" id="finishSummary"></p>
+
+    <div>
+      <label class="section-label"><input type="checkbox" id="endframeToggle" checked> 마지막에 정보 프레임 추가</label>
+      <div id="endframeFields">
+        <input type="date" id="ef-date" class="textinput">
+        <input type="text" id="ef-comment" class="textinput" placeholder="한줄 멘트" maxlength="40">
+        <input type="text" id="ef-place" class="textinput" placeholder="장소">
+      </div>
+    </div>
+
+    <div class="choice" id="audioChoice">
+      <button data-mode="live" class="active">현장음 유지</button>
+      <button data-mode="bgm">BGM으로 교체</button>
+    </div>
+
+    <div id="bgmPicker">
+      <input type="file" id="bgmFile" accept="audio/*">
+    </div>
+
+    <button class="bigbtn" id="mergeBtn">영상 만들기</button>
+    <div class="ghostbtn" id="backToSetup" style="text-align:center">처음으로</div>
+
+    <div id="progressWrap">
+      <div id="progressBar"><div id="progressFill"></div></div>
+      <div id="status">처리 중...</div>
+    </div>
+
+    <div id="resultWrap">
+      <video id="resultVideo" controls playsinline></video>
+      <button class="bigbtn" id="shareBtn">저장 / 공유</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Filter presets (approximating iOS Photos filters via CSS filter) ----------
+  const FILTERS = [
+    { id: 'none',        name: '원본',        css: 'none' },
+    { id: 'vivid',       name: 'Vivid',       css: 'saturate(1.45) contrast(1.12)' },
+    { id: 'vividWarm',   name: 'Vivid Warm',  css: 'saturate(1.4) contrast(1.1) sepia(0.18) hue-rotate(-8deg)' },
+    { id: 'vividCool',   name: 'Vivid Cool',  css: 'saturate(1.4) contrast(1.1) hue-rotate(10deg)' },
+    { id: 'dramatic',    name: 'Dramatic',    css: 'contrast(1.35) saturate(0.85) brightness(0.95)' },
+    { id: 'dramaticWarm',name: 'Dramatic Warm',css:'contrast(1.3) saturate(0.85) sepia(0.22) brightness(0.97)' },
+    { id: 'dramaticCool',name: 'Dramatic Cool',css:'contrast(1.3) saturate(0.85) hue-rotate(16deg) brightness(0.97)' },
+    { id: 'mono',        name: 'Mono',        css: 'grayscale(1) contrast(1.1)' },
+    { id: 'silvertone',  name: 'Silvertone',  css: 'grayscale(1) contrast(0.9) brightness(1.12)' },
+    { id: 'noir',        name: 'Noir',        css: 'grayscale(1) contrast(1.45) brightness(0.9)' },
+  ];
+
+  // ---------- IndexedDB helpers ----------
+  const DB_NAME = 'cutcam-db', STORE = 'segments';
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'idx' });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function dbPut(idx, blob) {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put({ idx, blob });
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  }
+  async function dbGetAll() {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).getAll();
+      req.onsuccess = () => res(req.result.sort((a, b) => a.idx - b.idx));
+      req.onerror = () => rej(req.error);
+    });
+  }
+  async function dbClear() {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  }
+
+  function loadMeta() { try { return JSON.parse(localStorage.getItem('cutcam-meta') || 'null'); } catch (e) { return null; } }
+  function saveMeta(m) { localStorage.setItem('cutcam-meta', JSON.stringify(m)); }
+  function clearMeta() { localStorage.removeItem('cutcam-meta'); }
+
+  // ---------- State ----------
+  let cutLength = 2.0;
+  let filterId = 'none';
+  let segIndex = 0;
+  let stream = null, video, canvas, ctx, canvasStream;
+  let recorder = null, running = false, segTimer = null, uiTimer = null;
+  let segStartTime = 0;
+  let rafId = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- Setup screen ----------
+  function buildFilterGrid() {
+    const grid = $('filterGrid');
+    grid.innerHTML = '';
+    FILTERS.forEach(f => {
+      const b = document.createElement('button');
+      b.textContent = f.name;
+      b.dataset.id = f.id;
+      if (f.id === filterId) b.classList.add('active');
+      b.onclick = () => {
+        filterId = f.id;
+        [...grid.children].forEach(c => c.classList.remove('active'));
+        b.classList.add('active');
+      };
+      grid.appendChild(b);
+    });
+  }
+
+  $('cutLen').addEventListener('input', (e) => {
+    cutLength = parseFloat(e.target.value);
+    $('cutLenVal').textContent = cutLength.toFixed(1);
+  });
+
+  function checkResume() {
+    const meta = loadMeta();
+    if (meta && meta.segIndex > 0) {
+      $('resumeBox').classList.add('show');
+      $('resumeCount').textContent = meta.segIndex;
+    }
+  }
+
+  $('discardBtn').onclick = async () => {
+    await dbClear(); clearMeta();
+    $('resumeBox').classList.remove('show');
+  };
+
+  $('resumeBtn').onclick = async () => {
+    const meta = loadMeta();
+    cutLength = meta.cutLength; filterId = meta.filterId; segIndex = meta.segIndex;
+    await goCamera();
+  };
+
+  $('startBtn').onclick = async () => {
+    await dbClear();
+    segIndex = 0;
+    saveMeta({ cutLength, filterId, segIndex });
+    await goCamera();
+  };
+
+  // ---------- Camera screen ----------
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    $(id).classList.add('active');
+  }
+
+  function currentCss() { return FILTERS.find(f => f.id === filterId).css; }
+
+  async function goCamera() {
+    showScreen('camera');
+    video = $('video'); canvas = $('canvas'); ctx = canvas.getContext('2d');
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1080 }, height: { ideal: 1920 } },
+      audio: true
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    canvas.width = video.videoWidth || 1080;
+    canvas.height = video.videoHeight || 1920;
+
+    canvasStream = canvas.captureStream(30);
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) canvasStream.addTrack(audioTrack);
+
+    drawLoop();
+    renderDots();
+    $('cutCountPill').textContent = segIndex + '컷';
+  }
+
+  function drawLoop() {
+    ctx.filter = currentCss();
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    rafId = requestAnimationFrame(drawLoop);
+  }
+
+  function renderDots() {
+    const wrap = $('cutDots');
+    wrap.innerHTML = '';
+    for (let i = 0; i < segIndex; i++) {
+      const d = document.createElement('div');
+      d.className = 'dot filled';
+      wrap.appendChild(d);
+    }
+  }
+
+  function pickMime() {
+    const cands = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    return cands.find(c => MediaRecorder.isTypeSupported(c)) || '';
+  }
+
+  function startSegment() {
+    const mime = pickMime();
+    recorder = new MediaRecorder(canvasStream, mime ? { mimeType: mime } : undefined);
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = async () => {
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      await dbPut(segIndex, blob);
+      segIndex++;
+      saveMeta({ cutLength, filterId, segIndex });
+      $('cutCountPill').textContent = segIndex + '컷';
+      renderDots();
+      if (running) startSegment();
+    };
+    recorder.start();
+    segStartTime = performance.now();
+    segTimer = setTimeout(() => { if (recorder && recorder.state === 'recording') recorder.stop(); }, cutLength * 1000);
+  }
+
+  function updateTimerUI() {
+    if (!running) return;
+    const elapsed = ((performance.now() - segStartTime) / 1000).toFixed(1);
+    $('timerPill').textContent = elapsed + 's';
+    uiTimer = requestAnimationFrame(updateTimerUI);
+  }
+
+  $('recordBtn').onclick = () => {
+    running = !running;
+    $('recordBtn').classList.toggle('recording', running);
+    $('finishBtn2').style.display = segIndex > 0 ? 'block' : 'none';
+    if (running) {
+      startSegment();
+      updateTimerUI();
+    } else {
+      clearTimeout(segTimer);
+      cancelAnimationFrame(uiTimer);
+      if (recorder && recorder.state === 'recording') recorder.stop();
+      $('finishBtn2').style.display = segIndex > 0 ? 'block' : 'none';
+    }
+  };
+
+  $('finishBtn2').onclick = () => {
+    running = false;
+    clearTimeout(segTimer);
+    cancelAnimationFrame(uiTimer);
+    cancelAnimationFrame(rafId);
+    if (recorder && recorder.state === 'recording') recorder.stop();
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    goFinish();
+  };
+
+  // ---------- Finish screen ----------
+  let audioMode = 'live';
+  document.querySelectorAll('#audioChoice button').forEach(b => {
+    b.onclick = () => {
+      audioMode = b.dataset.mode;
+      document.querySelectorAll('#audioChoice button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      $('bgmPicker').classList.toggle('show', audioMode === 'bgm');
+    };
+  });
+
+  async function goFinish() {
+    showScreen('finish');
+    const segs = await dbGetAll();
+    $('finishSummary').textContent = `${segs.length}개 컷 · 총 약 ${(segs.length * cutLength).toFixed(1)}초`;
+    $('ef-date').value = new Date().toISOString().slice(0, 10);
+  }
+
+  $('endframeToggle').addEventListener('change', (e) => {
+    $('endframeFields').classList.toggle('hide', !e.target.checked);
+  });
+
+  function formatDateKR(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${y}. ${parseInt(m)}. ${parseInt(d)}`;
+  }
+
+  function drawEndFrameContent(dateIso, comment, place) {
+    const w = canvas.width, h = canvas.height;
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, '#161616'); grad.addColorStop(1, '#000');
+    ctx.filter = 'none';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.textAlign = 'center';
+
+    let y = h / 2 - h * 0.06;
+    if (dateIso) {
+      ctx.fillStyle = '#8a8a8a';
+      ctx.font = `${Math.round(w * 0.042)}px -apple-system, sans-serif`;
+      ctx.fillText(formatDateKR(dateIso), w / 2, y);
+      y += h * 0.06;
+    }
+    if (comment) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `600 ${Math.round(w * 0.062)}px -apple-system, sans-serif`;
+      ctx.fillText(comment, w / 2, y);
+      y += h * 0.07;
+    }
+    if (place) {
+      ctx.fillStyle = '#8a8a8a';
+      ctx.font = `${Math.round(w * 0.038)}px -apple-system, sans-serif`;
+      ctx.fillText('📍 ' + place, w / 2, y);
+    }
+  }
+
+  function recordEndFrame(idx, dateIso, comment, place) {
+    return new Promise((resolve, reject) => {
+      drawEndFrameContent(dateIso, comment, place);
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      const dest = audioCtx.createMediaStreamDestination();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0;
+      osc.connect(gain).connect(dest);
+      osc.start();
+
+      const efStream = canvas.captureStream(5);
+      const audioTrack = dest.stream.getAudioTracks()[0];
+      if (audioTrack) efStream.addTrack(audioTrack);
+
+      const mime = pickMime();
+      const rec = new MediaRecorder(efStream, mime ? { mimeType: mime } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        try {
+          osc.stop(); audioCtx.close();
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          await dbPut(idx, blob);
+          resolve();
+        } catch (err) { reject(err); }
+      };
+      rec.start();
+      setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 3000);
+    });
+  }
+
+  $('backToSetup').onclick = async () => {
+    await dbClear(); clearMeta();
+    location.reload();
+  };
+
+  $('mergeBtn').onclick = async () => {
+    let segs = await dbGetAll();
+    if (!segs.length) { alert('촬영된 컷이 없어요.'); return; }
+    if (audioMode === 'bgm' && !$('bgmFile').files[0]) { alert('BGM 파일을 선택해주세요.'); return; }
+
+    $('progressWrap').classList.add('show');
+    $('resultWrap').classList.remove('show');
+    $('mergeBtn').disabled = true;
+
+    try {
+      if ($('endframeToggle').checked) {
+        const dateIso = $('ef-date').value;
+        const comment = $('ef-comment').value.trim();
+        const place = $('ef-place').value.trim();
+        if (dateIso || comment || place) {
+          $('status').textContent = '마무리 프레임 생성 중...';
+          const nextIdx = Math.max(...segs.map(s => s.idx)) + 1;
+          await recordEndFrame(nextIdx, dateIso, comment, place);
+          segs = await dbGetAll();
+        }
+      }
+
+      const { createFFmpeg, fetchFile } = FFmpeg;
+      const ffmpeg = createFFmpeg({ log: false, progress: ({ ratio }) => {
+        const pct = Math.min(100, Math.max(0, Math.round(ratio * 100)));
+        $('progressFill').style.width = pct + '%';
+        $('status').textContent = `처리 중... ${pct}%`;
+      }});
+      $('status').textContent = 'ffmpeg 로딩 중...';
+      await ffmpeg.load();
+
+      // write segments
+      let listTxt = '';
+      for (let i = 0; i < segs.length; i++) {
+        const name = `seg${i}.webm`;
+        ffmpeg.FS('writeFile', name, await fetchFile(segs[i].blob));
+        listTxt += `file ${name}\n`;
+      }
+      ffmpeg.FS('writeFile', 'list.txt', listTxt);
+
+      $('status').textContent = '컷 이어붙이는 중...';
+      await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'combined.webm');
+
+      let finalName = 'combined.webm';
+
+      if (audioMode === 'bgm') {
+        const bgmFile = $('bgmFile').files[0];
+        ffmpeg.FS('writeFile', 'bgm_in', await fetchFile(bgmFile));
+        $('status').textContent = '배경음악 입히는 중...';
+        await ffmpeg.run(
+          '-i', 'combined.webm', '-stream_loop', '-1', '-i', 'bgm_in',
+          '-map', '0:v:0', '-map', '1:a:0',
+          '-c:v', 'copy', '-c:a', 'aac', '-shortest', 'final.mp4'
+        );
+        finalName = 'final.mp4';
+      } else {
+        $('status').textContent = '마무리 중...';
+        await ffmpeg.run('-i', 'combined.webm', '-c:v', 'copy', '-c:a', 'aac', 'final.mp4');
+        finalName = 'final.mp4';
+      }
+
+      const data = ffmpeg.FS('readFile', finalName);
+      const outBlob = new Blob([data.buffer], { type: 'video/mp4' });
+      const url = URL.createObjectURL(outBlob);
+      $('resultVideo').src = url;
+      $('resultWrap').classList.add('show');
+      $('progressWrap').classList.remove('show');
+      $('status').textContent = '';
+
+      $('shareBtn').onclick = async () => {
+        const file = new File([outBlob], 'cutcam.mp4', { type: 'video/mp4' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file], title: 'CutCam' }); return; } catch (e) {}
+        }
+        const a = document.createElement('a');
+        a.href = url; a.download = 'cutcam.mp4'; a.click();
+      };
+
+      await dbClear(); clearMeta();
+    } catch (err) {
+      console.error(err);
+      $('status').textContent = '오류가 발생했어요: ' + err.message;
+    } finally {
+      $('mergeBtn').disabled = false;
+    }
+  };
+
+  // ---------- Init ----------
+  buildFilterGrid();
+  checkResume();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
